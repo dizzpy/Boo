@@ -19,8 +19,7 @@ struct SettingsView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Text("👻")
-                .font(.system(size: 30))
+            GhostAvatar(avatar: .happy, height: 34)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Boo").font(.title3.bold())
                 Text("Eats your downloads, neatly.")
@@ -54,7 +53,7 @@ struct SettingsView: View {
         Section("Remembered types") {
             if store.learned.isEmpty {
                 HStack(spacing: 8) {
-                    Text("👻").font(.title3)
+                    GhostAvatar(avatar: .smile, height: 22)
                     Text("Nothing learned yet. Boo remembers whenever you file a new type.")
                         .font(.callout)
                         .foregroundStyle(.secondary)

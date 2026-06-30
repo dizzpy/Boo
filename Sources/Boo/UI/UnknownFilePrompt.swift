@@ -128,7 +128,7 @@ private struct UnknownFilePromptView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
-            Text("👻").font(.system(size: 34))
+            GhostAvatar(avatar: .surprise, height: 40)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Where should this go?")
                     .font(.headline)

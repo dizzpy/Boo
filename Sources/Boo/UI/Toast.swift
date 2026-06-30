@@ -30,7 +30,7 @@ final class ToastManager {
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.hide() }
         hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: work)
     }
 
     private func hide() {
@@ -72,7 +72,7 @@ private struct ToastView: View {
     let message: String
     var body: some View {
         HStack(spacing: 8) {
-            Text("👻")
+            GhostAvatar(avatar: .happy, height: 20)
             Text(message)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.primary)

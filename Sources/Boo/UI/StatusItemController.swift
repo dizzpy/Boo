@@ -6,10 +6,13 @@ final class StatusItemController: NSObject {
     private let sorter: Sorter
     private let store = Store.shared
 
+    /// Height of the menu-bar avatar, in points.
+    private static let iconHeight: CGFloat = 15
+
     private var animTimer: Timer?
-    private var frame = 0
     private var temporaryState: GhostState = .idle
     private var temporaryUntil: Date?
+    private var shownState: GhostState?
 
     private var settingsWindow: NSWindow?
     private let statusMenuItem = NSMenuItem(title: "Boo is watching", action: nil, keyEquivalent: "")
@@ -19,33 +22,36 @@ final class StatusItemController: NSObject {
         self.sorter = sorter
         super.init()
 
-        item.button?.image = GhostRenderer.image(.idle, frame: 0)
         item.button?.imagePosition = .imageOnly
         buildMenu()
         startAnimation()
+        refresh()
         refreshStatusText()
     }
 
-    // MARK: - Animation
+    // MARK: - Avatar
 
     private func startAnimation() {
-        animTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
-            self?.tick()
+        // A light tick that flips the avatar back to idle/sleeping when a
+        // temporary reaction (eating, confused) expires. Only redraws on change.
+        animTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.refresh()
         }
         if let t = animTimer { RunLoop.main.add(t, forMode: .common) }
     }
 
-    private func tick() {
-        frame &+= 1
-        let now = Date()
-        let active: GhostState
-        if let until = temporaryUntil, now < until {
-            active = temporaryState
+    /// Picks the avatar that should be showing right now and updates it if needed.
+    private func refresh() {
+        let desired: GhostState
+        if let until = temporaryUntil, Date() < until {
+            desired = temporaryState
         } else {
             temporaryUntil = nil
-            active = .idle
+            desired = store.paused ? .sleeping : .idle
         }
-        item.button?.image = GhostRenderer.image(active, frame: frame)
+        guard desired != shownState else { return }
+        shownState = desired
+        item.button?.image = GhostRenderer.image(for: desired, height: Self.iconHeight)
     }
 
     func playEating() { setTemporary(.eating, for: 0.9) }
@@ -54,6 +60,7 @@ final class StatusItemController: NSObject {
     private func setTemporary(_ state: GhostState, for duration: TimeInterval) {
         temporaryState = state
         temporaryUntil = Date().addingTimeInterval(duration)
+        refresh()
     }
 
     // MARK: - Menu
@@ -98,6 +105,7 @@ final class StatusItemController: NSObject {
     @objc private func togglePause() {
         store.paused.toggle()
         refreshStatusText()
+        refresh()
         if !store.paused { sorter.scan() }
     }
 

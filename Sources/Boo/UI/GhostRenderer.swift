@@ -1,84 +1,62 @@
 import AppKit
+import SwiftUI
 
 enum GhostState {
-    case idle, eating, confused
+    case idle, eating, confused, sleeping
 }
 
-/// Draws the little ghost as a template NSImage so the menu bar tints it
-/// correctly in light and dark mode.
+/// Loads the ghost avatar art (bundled SVGs) and scales it for a given spot.
+/// Images stay vector-backed so they render crisply at any size / Retina scale.
 enum GhostRenderer {
 
-    static func image(_ state: GhostState, frame: Int) -> NSImage {
-        let size = NSSize(width: 20, height: 18)
-        let image = NSImage(size: size, flipped: false) { rect in
-            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
-            draw(in: ctx, rect: rect, state: state, frame: frame)
-            return true
-        }
-        image.isTemplate = true
-        return image
+    /// Avatar art bundled under Resources/Avatars. Raw values are the file names.
+    enum Avatar: String {
+        case `default`, eating, confused, sleep
+        case happy, smile, sad, moreSad = "more-sad", surprise
     }
 
-    private static func draw(in ctx: CGContext, rect: CGRect, state: GhostState, frame: Int) {
-        ctx.setFillColor(NSColor.black.cgColor)
+    private static var cache: [String: NSImage] = [:]
 
-        // Gentle vertical bob for the idle state.
-        let bob: CGFloat = (state == .idle && (frame / 5) % 2 == 1) ? 1 : 0
-
-        let cx = rect.midX
-        let bodyW: CGFloat = 14
-        let left = cx - bodyW / 2
-        let right = cx + bodyW / 2
-        let bottom: CGFloat = 2 + bob
-        let shoulderY: CGFloat = 9 + bob
-        let topY: CGFloat = 16 + bob
-        let radius = bodyW / 2
-
-        let body = CGMutablePath()
-        body.move(to: CGPoint(x: left, y: bottom))
-        body.addLine(to: CGPoint(x: left, y: shoulderY))
-        // Domed head.
-        body.addArc(center: CGPoint(x: cx, y: shoulderY),
-                    radius: radius, startAngle: .pi, endAngle: 0, clockwise: false)
-        body.addLine(to: CGPoint(x: right, y: bottom))
-        // Scalloped bottom (3 bumps).
-        let bumps = 3
-        let step = bodyW / CGFloat(bumps)
-        var x = right
-        for _ in 0..<bumps {
-            let nextX = x - step
-            let midX = (x + nextX) / 2
-            body.addQuadCurve(to: CGPoint(x: nextX, y: bottom),
-                              control: CGPoint(x: midX, y: bottom + 3))
-            x = nextX
+    /// The menu-bar avatar for a given runtime state.
+    static func image(for state: GhostState, height: CGFloat) -> NSImage {
+        switch state {
+        case .idle:     return image(.default, height: height)
+        case .eating:   return image(.eating, height: height)
+        case .confused: return image(.confused, height: height)
+        case .sleeping: return image(.sleep, height: height)
         }
-        body.closeSubpath()
+    }
 
-        // Eyes (and mouth) are punched out with an even-odd fill.
-        let eyeR: CGFloat = (state == .confused) ? 2.0 : 1.6
-        let eyeY = shoulderY + 2 + (topY - shoulderY) * 0
-        let eyeL = CGRect(x: cx - 3.5 - eyeR, y: eyeY - eyeR, width: eyeR * 2, height: eyeR * 2)
-        let eyeRr = CGRect(x: cx + 3.5 - eyeR, y: eyeY - eyeR, width: eyeR * 2, height: eyeR * 2)
+    /// A specific avatar scaled to `height` (width follows the art's aspect ratio).
+    static func image(_ avatar: Avatar, height: CGFloat) -> NSImage {
+        let key = "\(avatar.rawValue)@\(height)"
+        if let cached = cache[key] { return cached }
+        let img = load(avatar, height: height)
+        cache[key] = img
+        return img
+    }
 
-        ctx.addPath(body)
-        ctx.addEllipse(in: eyeL)
-        ctx.addEllipse(in: eyeRr)
-
-        if state == .eating {
-            // Open, chomping mouth that pulses across frames.
-            let open = (frame % 2 == 0) ? 3.2 : 1.6
-            let mouth = CGRect(x: cx - 2.5, y: shoulderY - 1.5, width: 5, height: open)
-            ctx.addEllipse(in: mouth)
+    private static func load(_ avatar: Avatar, height: CGFloat) -> NSImage {
+        guard let url = Bundle.module.url(
+                forResource: avatar.rawValue, withExtension: "svg", subdirectory: "Avatars"),
+              let svg = NSImage(contentsOf: url), svg.size.height > 0
+        else {
+            // Fallback: empty image so the app never crashes on a missing asset.
+            return NSImage(size: NSSize(width: height, height: height))
         }
+        let scale = height / svg.size.height
+        svg.size = NSSize(width: (svg.size.width * scale).rounded(), height: height)
+        svg.isTemplate = false   // colored art, not a tinted template
+        return svg
+    }
+}
 
-        ctx.fillPath(using: .evenOdd)
+/// A ghost avatar for use in SwiftUI views (settings, toast, prompts).
+struct GhostAvatar: View {
+    let avatar: GhostRenderer.Avatar
+    var height: CGFloat = 34
 
-        if state == .confused {
-            let q = NSAttributedString(string: "?", attributes: [
-                .font: NSFont.boldSystemFont(ofSize: 8),
-                .foregroundColor: NSColor.black
-            ])
-            q.draw(at: CGPoint(x: right - 3, y: topY - 5))
-        }
+    var body: some View {
+        Image(nsImage: GhostRenderer.image(avatar, height: height))
     }
 }

@@ -46,6 +46,11 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
+# Ad-hoc sign the assembled bundle so its signature is valid and consistent.
+# Without this, macOS reports a downloaded build as "damaged". (This is not a
+# Developer ID signature, so users still clear quarantine once — see README.)
+codesign --force --deep --sign - "$APP"
+
 echo "Done: $APP"
 
 # --- Disk image: styled drag-to-install DMG (stock hdiutil + Finder only). ---

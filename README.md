@@ -40,12 +40,22 @@ The full set lives in [`Sources/Boo/Resources/Avatars`](Sources/Boo/Resources/Av
 
 1. Download `Boo.dmg` from the [latest release](https://github.com/dizzpy/boo/releases/latest).
 2. Open it and drag **Boo** into the **Applications** folder, then eject the disk image.
-3. Boo isn't signed with a paid Apple Developer certificate yet, so macOS blocks
-   it on first launch. Get past Gatekeeper once, either way:
-   - **Right-click Boo → Open**, then click **Open** in the dialog, **or**
-   - run `xattr -dr com.apple.quarantine /Applications/Boo.app`
+3. Boo is ad-hoc signed but **not notarized** (that needs a paid Apple Developer
+   account), so on first launch macOS blocks it as an "unidentified developer".
+   Clear it once — easiest way:
+
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Boo.app
+   ```
+
+   Or without the terminal: try to open Boo, then go to **System Settings →
+   Privacy & Security**, scroll down, and click **Open Anyway**.
 4. The ghost appears in your menu bar. To start it automatically, add Boo under
    **System Settings → General → Login Items**.
+
+> If you ever see **"Boo is damaged and can't be opened"**, that's macOS's
+> message for a quarantined un-notarized app — it isn't actually damaged. The
+> `xattr` command above clears it.
 
 > On first sort, macOS asks permission to access your Downloads folder — click **OK**.
 

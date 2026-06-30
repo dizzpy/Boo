@@ -1,17 +1,31 @@
 #!/bin/bash
-# Builds Boo.app from the Swift package.
+# Builds Boo.app from the Swift package, then a simple Boo.dmg for distribution.
 set -e
 
 APP="Boo.app"
+DMG="Boo.dmg"
 BIN="Boo"
+BUNDLE="Boo_Boo.bundle"   # SwiftPM resource bundle (ghost avatars)
 
 echo "Building release binary…"
 swift build -c release
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp ".build/release/$BIN" "$APP/Contents/MacOS/$BIN"
+
+# Bundle the avatar art so Bundle.module can find it inside the .app.
+cp -R ".build/release/$BUNDLE" "$APP/Contents/Resources/$BUNDLE"
+
+# Build the app icon (rounded) from Icon/icon.png, if present.
+ICON_SRC="Icon/icon.png"
+if [ -f "$ICON_SRC" ]; then
+  echo "Generating app icon…"
+  ICONSET="$(mktemp -d)/AppIcon.iconset"
+  swift Scripts/make-icon.swift "$ICON_SRC" "$ICONSET"
+  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+fi
 
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -25,6 +39,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleShortVersionString</key> <string>1.0</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>CFBundleExecutable</key>      <string>Boo</string>
+  <key>CFBundleIconFile</key>        <string>AppIcon</string>
   <key>LSMinimumSystemVersion</key>  <string>13.0</string>
   <key>LSUIElement</key>             <true/>
 </dict>
@@ -32,4 +47,61 @@ cat > "$APP/Contents/Info.plist" <<EOF
 EOF
 
 echo "Done: $APP"
-echo "Move it to /Applications and add to Login Items to auto-start."
+
+# --- Disk image: styled drag-to-install DMG (stock hdiutil + Finder only). ---
+# Cream background with an arrow, Boo on the left, Applications on the right.
+echo "Building $DMG…"
+VOL="Boo"
+
+# Cream background art with the arrow (see Scripts/make-dmg-bg.swift for layout).
+BG="$(mktemp -d)/background.png"
+swift Scripts/make-dmg-bg.swift "$BG"
+
+# Make sure no stale "Boo" volume is mounted from a previous run.
+hdiutil detach "/Volumes/$VOL" >/dev/null 2>&1 || true
+
+# Writable image, sized to the app plus slack, then populate it.
+SIZE_MB=$(( $(du -sm "$APP" | cut -f1) + 30 ))
+RW="$(mktemp -d)/boo-rw.dmg"
+hdiutil create -volname "$VOL" -size "${SIZE_MB}m" -fs HFS+ -ov "$RW" >/dev/null
+MP="$(hdiutil attach "$RW" -nobrowse -noverify -noautoopen | egrep -o '/Volumes/[^ ]+' | tail -1)"
+
+cp -R "$APP" "$MP/"
+ln -s /Applications "$MP/Applications"
+mkdir "$MP/.background"
+cp "$BG" "$MP/.background/background.png"
+
+# Lay out the window. Best effort: if Finder styling is blocked (e.g. missing
+# Automation permission), the DMG still works, just without the background.
+osascript <<OSA >/dev/null 2>&1 || echo "  (window styling skipped — DMG still works)"
+tell application "Finder"
+  tell disk "$VOL"
+    open
+    set current view of container window to icon view
+    set toolbar visible of container window to false
+    set statusbar visible of container window to false
+    set the bounds of container window to {300, 140, 960, 560}
+    set viewOptions to the icon view options of container window
+    set arrangement of viewOptions to not arranged
+    set icon size of viewOptions to 128
+    set text size of viewOptions to 13
+    set background picture of viewOptions to file ".background:background.png"
+    set position of item "Boo.app" of container window to {175, 195}
+    set position of item "Applications" of container window to {485, 195}
+    update without registering applications
+    delay 1
+    close
+  end tell
+end tell
+OSA
+
+sync
+hdiutil detach "$MP" >/dev/null 2>&1 || true
+
+# Compress to the final read-only image.
+rm -f "$DMG"
+hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "$DMG" >/dev/null
+rm -f "$RW"
+
+echo "Done: $DMG"
+echo "Open the DMG and drag Boo into Applications."

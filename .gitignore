@@ -3,6 +3,7 @@
 .swiftpm/
 *.xcodeproj
 Boo.app/
+Boo.dmg
 DerivedData/
 
 .claude/

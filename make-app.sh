@@ -5,7 +5,6 @@ set -e
 APP="Boo.app"
 DMG="Boo.dmg"
 BIN="Boo"
-BUNDLE="Boo_Boo.bundle"   # SwiftPM resource bundle (ghost avatars)
 
 echo "Building release binary…"
 swift build -c release
@@ -15,8 +14,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp ".build/release/$BIN" "$APP/Contents/MacOS/$BIN"
 
-# Bundle the avatar art so Bundle.module can find it inside the .app.
-cp -R ".build/release/$BUNDLE" "$APP/Contents/Resources/$BUNDLE"
+# Ship the avatar art at a predictable path the app looks up at runtime.
+cp -R "Sources/Boo/Resources/Avatars" "$APP/Contents/Resources/Avatars"
 
 # Build the app icon (rounded) from Icon/icon.png, if present.
 ICON_SRC="Icon/icon.png"

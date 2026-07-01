@@ -37,8 +37,7 @@ enum GhostRenderer {
     }
 
     private static func load(_ avatar: Avatar, height: CGFloat) -> NSImage {
-        guard let url = Bundle.module.url(
-                forResource: avatar.rawValue, withExtension: "svg", subdirectory: "Avatars"),
+        guard let url = url(for: avatar),
               let svg = NSImage(contentsOf: url), svg.size.height > 0
         else {
             // Fallback: empty image so the app never crashes on a missing asset.
@@ -48,6 +47,31 @@ enum GhostRenderer {
         svg.size = NSSize(width: (svg.size.width * scale).rounded(), height: height)
         svg.isTemplate = false   // colored art, not a tinted template
         return svg
+    }
+
+    /// Finds an avatar SVG across the layouts we ship: `Avatars/` inside the
+    /// packaged .app's Resources, or the SwiftPM `Boo_Boo.bundle` beside the
+    /// executable during `swift run`. Avoids `Bundle.module`, which crashes with
+    /// `fatalError` when the bundle isn't where it expects.
+    private static func url(for avatar: Avatar) -> URL? {
+        let fm = FileManager.default
+        let file = "\(avatar.rawValue).svg"
+        let resources = Bundle.main.resourceURL
+        let exeDir = Bundle.main.executableURL?.deletingLastPathComponent()
+
+        let dirs: [URL] = [
+            resources?.appendingPathComponent("Avatars"),
+            resources?.appendingPathComponent("Boo_Boo.bundle/Avatars"),
+            resources?.appendingPathComponent("Boo_Boo.bundle/Contents/Resources/Avatars"),
+            exeDir?.appendingPathComponent("Boo_Boo.bundle/Avatars"),
+            exeDir?.appendingPathComponent("Boo_Boo.bundle/Contents/Resources/Avatars"),
+        ].compactMap { $0 }
+
+        for dir in dirs {
+            let candidate = dir.appendingPathComponent(file)
+            if fm.fileExists(atPath: candidate.path) { return candidate }
+        }
+        return nil
     }
 }
 

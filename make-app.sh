@@ -11,7 +11,7 @@ ENTITLEMENTS="Boo.entitlements"
 VERSION="${BOO_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || echo 0.0.0)}"
 VERSION="${VERSION#v}"
 
-echo "Building release binary (v$VERSION)…"
+echo "Building release binary (v${VERSION})..."
 swift build -c release
 
 rm -rf "$APP"
@@ -25,7 +25,7 @@ cp -R "Sources/Boo/Resources/Avatars" "$APP/Contents/Resources/Avatars"
 # Build the app icon (rounded) from Icon/icon.png, if present.
 ICON_SRC="Icon/icon.png"
 if [ -f "$ICON_SRC" ]; then
-  echo "Generating app icon…"
+  echo "Generating app icon..."
   ICONSET="$(mktemp -d)/AppIcon.iconset"
   swift Scripts/make-icon.swift "$ICON_SRC" "$ICONSET"
   iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
@@ -51,14 +51,14 @@ cat > "$APP/Contents/Info.plist" <<EOF
 EOF
 
 # Ad-hoc sign with sandbox entitlements + hardened runtime. Not a Developer ID
-# signature, so users still clear Gatekeeper once — see README.
+# signature, so users still clear Gatekeeper once - see README.
 codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign - "$APP"
 
 echo "Done: $APP"
 
 # --- Disk image: styled drag-to-install DMG (stock hdiutil + Finder only). ---
 # Cream background with an arrow, Boo on the left, Applications on the right.
-echo "Building $DMG…"
+echo "Building ${DMG}..."
 VOL="Boo"
 
 # Cream background art with the arrow (see Scripts/make-dmg-bg.swift for layout).
@@ -82,9 +82,9 @@ ln -s /Applications "$MP/Applications"
 mkdir "$MP/.background"
 cp "$BG" "$MP/.background/background.png"
 
-# Style the window; best effort — without Automation permission the DMG
+# Style the window; best effort - without Automation permission the DMG
 # still works, just unstyled.
-osascript <<OSA >/dev/null 2>&1 || echo "  (window styling skipped — DMG still works)"
+osascript <<OSA >/dev/null 2>&1 || echo "  (window styling skipped - DMG still works)"
 tell application "Finder"
   tell disk "$VOL"
     open

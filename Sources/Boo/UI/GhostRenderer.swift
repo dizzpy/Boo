@@ -49,10 +49,8 @@ enum GhostRenderer {
         return svg
     }
 
-    /// Finds an avatar SVG across the layouts we ship: `Avatars/` inside the
-    /// packaged .app's Resources, or the SwiftPM `Boo_Boo.bundle` beside the
-    /// executable during `swift run`. Avoids `Bundle.module`, which crashes with
-    /// `fatalError` when the bundle isn't where it expects.
+    /// Finds an avatar SVG in the packaged app's Resources, or in the SwiftPM
+    /// bundle beside the executable during `swift run`.
     private static func url(for avatar: Avatar) -> URL? {
         let fm = FileManager.default
         let file = "\(avatar.rawValue).svg"

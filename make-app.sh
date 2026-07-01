@@ -1,12 +1,17 @@
 #!/bin/bash
 # Builds Boo.app from the Swift package, then a simple Boo.dmg for distribution.
-set -e
+set -euo pipefail
 
 APP="Boo.app"
 DMG="Boo.dmg"
 BIN="Boo"
+ENTITLEMENTS="Boo.entitlements"
 
-echo "Building release binary…"
+# Version: $BOO_VERSION (CI passes the git tag), else the latest local tag.
+VERSION="${BOO_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || echo 0.0.0)}"
+VERSION="${VERSION#v}"
+
+echo "Building release binary (v$VERSION)…"
 swift build -c release
 
 rm -rf "$APP"
@@ -34,8 +39,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleName</key>            <string>Boo</string>
   <key>CFBundleDisplayName</key>     <string>Boo</string>
   <key>CFBundleIdentifier</key>      <string>co.dizzpy.boo</string>
-  <key>CFBundleVersion</key>         <string>1.0</string>
-  <key>CFBundleShortVersionString</key> <string>1.0</string>
+  <key>CFBundleVersion</key>         <string>$VERSION</string>
+  <key>CFBundleShortVersionString</key> <string>$VERSION</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>CFBundleExecutable</key>      <string>Boo</string>
   <key>CFBundleIconFile</key>        <string>AppIcon</string>
@@ -45,10 +50,9 @@ cat > "$APP/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-# Ad-hoc sign the assembled bundle so its signature is valid and consistent.
-# Without this, macOS reports a downloaded build as "damaged". (This is not a
-# Developer ID signature, so users still clear quarantine once — see README.)
-codesign --force --deep --sign - "$APP"
+# Ad-hoc sign with sandbox entitlements + hardened runtime. Not a Developer ID
+# signature, so users still clear Gatekeeper once — see README.
+codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign - "$APP"
 
 echo "Done: $APP"
 
@@ -61,22 +65,25 @@ VOL="Boo"
 BG="$(mktemp -d)/background.png"
 swift Scripts/make-dmg-bg.swift "$BG"
 
-# Make sure no stale "Boo" volume is mounted from a previous run.
-hdiutil detach "/Volumes/$VOL" >/dev/null 2>&1 || true
+# Detach a leftover image volume; hdiutil info lists only disk images,
+# so a real disk named "Boo" is never touched.
+if [ -d "/Volumes/$VOL" ] && hdiutil info | grep -q "/Volumes/$VOL"; then
+  hdiutil detach "/Volumes/$VOL" >/dev/null 2>&1 || true
+fi
 
 # Writable image, sized to the app plus slack, then populate it.
 SIZE_MB=$(( $(du -sm "$APP" | cut -f1) + 30 ))
 RW="$(mktemp -d)/boo-rw.dmg"
 hdiutil create -volname "$VOL" -size "${SIZE_MB}m" -fs HFS+ -ov "$RW" >/dev/null
-MP="$(hdiutil attach "$RW" -nobrowse -noverify -noautoopen | egrep -o '/Volumes/[^ ]+' | tail -1)"
+MP="$(hdiutil attach "$RW" -nobrowse -noverify -noautoopen | grep -o '/Volumes/.*' | tail -1)"
 
 cp -R "$APP" "$MP/"
 ln -s /Applications "$MP/Applications"
 mkdir "$MP/.background"
 cp "$BG" "$MP/.background/background.png"
 
-# Lay out the window. Best effort: if Finder styling is blocked (e.g. missing
-# Automation permission), the DMG still works, just without the background.
+# Style the window; best effort — without Automation permission the DMG
+# still works, just unstyled.
 osascript <<OSA >/dev/null 2>&1 || echo "  (window styling skipped — DMG still works)"
 tell application "Finder"
   tell disk "$VOL"
@@ -107,5 +114,5 @@ rm -f "$DMG"
 hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "$DMG" >/dev/null
 rm -f "$RW"
 
-echo "Done: $DMG"
+echo "Done: $DMG (v$VERSION)"
 echo "Open the DMG and drag Boo into Applications."

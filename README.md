@@ -12,10 +12,13 @@ Native Swift. No Electron, no browser bundle, no background bloat. A couple of M
 ## Features
 
 - Silent auto-sort for common file types
-- Friendly popup for unknown types, with a "remember this type" option
+- Friendly popup for unknown types — remember where a type goes, or that it
+  should stay in Downloads
 - Animated ghost in the menu bar: idle, eating, confused, napping
 - Toast when a file gets sorted ("Nom! Saved to Images")
 - Settings window: pause, toggle toasts, manage learned rules
+- "Check for Updates" opens the latest release in your browser — the app
+  itself never touches the network
 - Ignores in-progress downloads (`.crdownload`, `.download`, `.part`)
 - Never touches your existing folders, only loose files in Downloads
 
@@ -38,26 +41,44 @@ The full set lives in [`Sources/Boo/Resources/Avatars`](Sources/Boo/Resources/Av
 
 ## Install
 
-1. Download `Boo.dmg` from the [latest release](https://github.com/dizzpy/boo/releases/latest).
-2. Open it and drag **Boo** into the **Applications** folder, then eject the disk image.
-3. Boo is ad-hoc signed but **not notarized** (that needs a paid Apple Developer
-   account), so on first launch macOS blocks it as an "unidentified developer".
-   Clear it once — easiest way:
+1. Download `Boo.dmg` **and** `Boo.dmg.sha256` from the [latest release](https://github.com/dizzpy/boo/releases/latest).
+2. **Verify the download** (recommended) — in Terminal, from your Downloads folder:
 
    ```bash
-   xattr -dr com.apple.quarantine /Applications/Boo.app
+   cd ~/Downloads && shasum -a 256 -c Boo.dmg.sha256
    ```
 
-   Or without the terminal: try to open Boo, then go to **System Settings →
+   Expect `Boo.dmg: OK`. Anything else: delete the file and re-download.
+3. Open the DMG and drag **Boo** into the **Applications** folder, then eject the disk image.
+4. Boo is ad-hoc signed but **not notarized** (that needs a paid Apple Developer
+   account), so on first launch macOS blocks it as an "unidentified developer".
+   Approve it once: try to open Boo, then go to **System Settings →
    Privacy & Security**, scroll down, and click **Open Anyway**.
-4. The ghost appears in your menu bar. To start it automatically, add Boo under
+
+   Terminal alternative, if you know what you're doing:
+   `xattr -dr com.apple.quarantine /Applications/Boo.app`
+5. The ghost appears in your menu bar. To start it automatically, add Boo under
    **System Settings → General → Login Items**.
 
 > If you ever see **"Boo is damaged and can't be opened"**, that's macOS's
-> message for a quarantined un-notarized app — it isn't actually damaged. The
-> `xattr` command above clears it.
+> message for a quarantined un-notarized app — it isn't actually damaged. Use
+> the **Open Anyway** flow above.
 
 > On first sort, macOS asks permission to access your Downloads folder — click **OK**.
+
+## Privacy & security
+
+- **Sandboxed.** Boo runs in the macOS App Sandbox with a single entitlement:
+  read/write access to your Downloads folder. It *cannot* touch anything else —
+  enforced by the OS, not by promise.
+- **No network.** There is no networking code in Boo at all. Nothing is
+  uploaded, no analytics, no update pings — grep the source.
+- **No dependencies.** Pure Swift and Apple frameworks; the dependency tree is empty.
+- **Never deletes or overwrites.** Files are only moved within Downloads, and
+  name collisions get a ` (1)` suffix instead of replacing anything.
+- Releases ship with SHA-256 checksums. To report a vulnerability, see
+  [SECURITY.md](SECURITY.md); the latest full audit lives in
+  [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
 
 ## Run it (dev)
 

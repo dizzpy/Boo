@@ -1,20 +1,27 @@
 import AppKit
 
-/// Watches a queue, scans Downloads, and sorts files.
-/// Known types move silently. Unknown types prompt the user.
+/// Scans Downloads and sorts files: known types move silently, unknown types prompt.
+/// All work runs on `queue`; never block the main thread on it.
 final class Sorter {
-    /// Called (off main) when a file was auto-sorted into `folder`.
-    var onSorted: ((String) -> Void)?
+    /// Called off-main once per scan: folder -> number of files moved into it.
+    var onSortedBatch: (([String: Int]) -> Void)?
     /// Called when an unknown file triggered a prompt.
     var onConfused: (() -> Void)?
 
     private let fm = FileManager.default
-    private let store = Store.shared
     private let queue = DispatchQueue(label: "co.dizzpy.boo.sort")
-    /// Files the user chose to leave in Downloads (basenames).
+    /// Files the user chose to leave in Downloads, keyed by name + creation date.
     private var leftAlone = Set<String>()
+    /// True while a delayed rescan is queued.
+    private var rescanPending = false
 
-    private let partialSuffixes = [".crdownload", ".download", ".part", ".partial", ".tmp"]
+    private let partialSuffixes = [
+        ".crdownload", ".download", ".part", ".partial", ".tmp",
+        ".opdownload", ".!ut", ".aria2", ".filepart",
+    ]
+    /// Files must sit untouched this long before moving; catches downloads
+    /// that preallocate their full size and would pass a size check.
+    private let settleInterval: TimeInterval = 5
 
     func scan() {
         queue.async { [weak self] in self?.performScan() }
@@ -23,50 +30,89 @@ final class Sorter {
     // MARK: - Scan
 
     private func performScan() {
-        guard !store.paused else { return }
+        // Store is main-thread only; snapshot what this scan needs.
+        let (paused, learned, ignored) = DispatchQueue.main.sync {
+            (Store.shared.paused, Store.shared.learned, Store.shared.ignoredExtensions)
+        }
+        guard !paused else { return }
+
         let dl = Paths.downloads
-        let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey]
+        let keys: [URLResourceKey] = [
+            .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey,
+            .contentModificationDateKey, .creationDateKey,
+        ]
         guard let items = try? fm.contentsOfDirectory(
             at: dl, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]
         ) else { return }
 
-        leftAlone = leftAlone.filter { fm.fileExists(atPath: dl.appendingPathComponent($0).path) }
+        leftAlone.formIntersection(items.map { fileKey($0) })
 
-        // Grouped by extension so we can prompt once for the whole batch, not once per file.
+        var movedCounts: [String: Int] = [:]
+        var sawUnsettledFile = false
+        // Grouped by extension so the prompt shows one row per type.
         var unresolved: [String: [URL]] = [:]
 
         for url in items {
-            let name = url.lastPathComponent
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            if values?.isDirectory == true { continue }
+            if values?.isSymbolicLink == true { continue }
 
-            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            if isDir { continue }
-
-            let lower = name.lowercased()
+            let lower = url.lastPathComponent.lowercased()
             if partialSuffixes.contains(where: { lower.hasSuffix($0) }) { continue }
-            if leftAlone.contains(name) { continue }
-            if !sizeStable(url) { continue }
+            if leftAlone.contains(fileKey(url)) { continue }
+
+            // Written to recently: may still be downloading.
+            if let modified = values?.contentModificationDate,
+               Date().timeIntervalSince(modified) < settleInterval {
+                sawUnsettledFile = true
+                continue
+            }
+            if !sizeStable(url) { sawUnsettledFile = true; continue }
             if !fm.fileExists(atPath: url.path) { continue } // vanished mid-loop
 
             let ext = url.pathExtension.lowercased()
+            if !ext.isEmpty, ignored.contains(ext) { continue }
 
             if let folder = Categories.builtin[ext] {
-                moveAndReport(url, to: folder)
+                if move(url, toFolder: folder) { movedCounts[folder, default: 0] += 1 }
                 continue
             }
-            if !ext.isEmpty, let folder = store.learned[ext] {
-                moveAndReport(url, to: folder)
+            if !ext.isEmpty, let folder = learned[ext] {
+                if move(url, toFolder: folder) { movedCounts[folder, default: 0] += 1 }
                 continue
             }
             unresolved[ext, default: []].append(url)
         }
 
+        if !movedCounts.isEmpty {
+            onSortedBatch?(movedCounts)
+        }
         if !unresolved.isEmpty {
             promptUnknownBatch(unresolved)
         }
+        if sawUnsettledFile {
+            scheduleRescan()
+        }
     }
 
-    /// Returns true if the file size is unchanged across a short window,
-    /// i.e. the download has finished writing.
+    /// Identifies a file across scans: same name and creation date.
+    private func fileKey(_ url: URL) -> String {
+        let created = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate)
+            .map { String($0.timeIntervalSince1970) } ?? "0"
+        return url.lastPathComponent + "|" + created
+    }
+
+    /// Settling files emit no further FS events, so come back once they finish.
+    private func scheduleRescan() {
+        guard !rescanPending else { return }
+        rescanPending = true
+        queue.asyncAfter(deadline: .now() + settleInterval + 0.5) { [weak self] in
+            self?.rescanPending = false
+            self?.performScan()
+        }
+    }
+
+    /// True if the size holds steady for a moment, i.e. writing has finished.
     private func sizeStable(_ url: URL) -> Bool {
         let s1 = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1
         Thread.sleep(forTimeInterval: 0.4)
@@ -76,15 +122,14 @@ final class Sorter {
 
     // MARK: - Move
 
-    private func moveAndReport(_ url: URL, to folder: String) {
-        if move(url, toFolder: folder) {
-            onSorted?(folder)
-        }
-    }
-
     @discardableResult
     private func move(_ url: URL, toFolder folder: String) -> Bool {
-        let destDir = Paths.downloads.appendingPathComponent(folder, isDirectory: true)
+        // Never move outside Downloads, even if a bad name slips into the rules.
+        guard FolderName.isValid(folder) else { return false }
+        let base = Paths.downloads.standardizedFileURL
+        let destDir = base.appendingPathComponent(folder, isDirectory: true).standardizedFileURL
+        guard destDir.path.hasPrefix(base.path + "/") else { return false }
+
         do {
             try fm.createDirectory(at: destDir, withIntermediateDirectories: true)
         } catch {
@@ -116,8 +161,7 @@ final class Sorter {
 
     // MARK: - Unknown type prompt
 
-    /// Prompts once for every unresolved extension found in this scan, then applies
-    /// each decision to every file sharing that extension.
+    /// Prompts once per unresolved extension, then applies each decision to its files.
     private func promptUnknownBatch(_ unresolved: [String: [URL]]) {
         onConfused?()
         let folders = existingFolders()
@@ -125,30 +169,39 @@ final class Sorter {
             .map { ext, urls in UnknownGroup(ext: ext, exampleName: urls[0].lastPathComponent, count: urls.count) }
             .sorted { $0.ext < $1.ext }
 
-        // UI must run on the main thread. We are on `queue`, so sync is safe.
+        var movedCounts: [String: Int] = [:]
+
+        // UI runs on main; we are on `queue`, so sync is safe.
         DispatchQueue.main.sync {
             let decisions = UnknownFilePrompt.run(groups: groups, folders: folders)
             for decision in decisions {
                 guard let urls = unresolved[decision.ext] else { continue }
                 switch decision.kind {
                 case .leave:
-                    for url in urls { leftAlone.insert(url.lastPathComponent) }
+                    if decision.remember, !decision.ext.isEmpty {
+                        Store.shared.ignoredExtensions.insert(decision.ext)
+                    } else {
+                        for url in urls { leftAlone.insert(fileKey(url)) }
+                    }
                 case .move:
                     var movedAny = false
                     for url in urls {
                         if move(url, toFolder: decision.folder) {
-                            onSorted?(decision.folder)
+                            movedCounts[decision.folder, default: 0] += 1
                             movedAny = true
                         } else {
-                            // Move failed; don't re-prompt on every rescan.
-                            leftAlone.insert(url.lastPathComponent)
+                            leftAlone.insert(fileKey(url)) // don't re-prompt on every rescan
                         }
                     }
                     if decision.remember, movedAny, !decision.ext.isEmpty {
-                        store.learned[decision.ext] = decision.folder
+                        Store.shared.learned[decision.ext] = decision.folder
                     }
                 }
             }
+        }
+
+        if !movedCounts.isEmpty {
+            onSortedBatch?(movedCounts)
         }
     }
 

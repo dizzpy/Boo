@@ -21,7 +21,12 @@ struct SettingsView: View {
         HStack(spacing: 12) {
             GhostAvatar(avatar: .happy, height: 34)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Boo").font(.title3.bold())
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("Boo").font(.title3.bold())
+                    Text(AppInfo.displayVersion)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
                 Text("Eats your downloads, neatly.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -51,7 +56,7 @@ struct SettingsView: View {
 
     private var learnedSection: some View {
         Section("Remembered types") {
-            if store.learned.isEmpty {
+            if store.learned.isEmpty && store.ignoredExtensions.isEmpty {
                 HStack(spacing: 8) {
                     GhostAvatar(avatar: .smile, height: 22)
                     Text("Nothing learned yet. Boo remembers whenever you file a new type.")
@@ -71,6 +76,25 @@ struct SettingsView: View {
                         Spacer()
                         Button {
                             store.learned.removeValue(forKey: ext)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Forget this rule")
+                    }
+                }
+                ForEach(store.ignoredExtensions.sorted(), id: \.self) { ext in
+                    HStack {
+                        Text(".\(ext)")
+                            .monospaced()
+                        Image(systemName: "arrow.right")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("Stays in Downloads")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            store.ignoredExtensions.remove(ext)
                         } label: {
                             Image(systemName: "trash")
                         }

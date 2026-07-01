@@ -88,7 +88,7 @@ private struct UnknownBatchPromptView: View {
     private var isValid: Bool {
         rows.allSatisfy { row in
             guard row.selection == Self.newFolderTag else { return true }
-            return !row.newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return FolderName.isValid(row.newFolderName.trimmingCharacters(in: .whitespacesAndNewlines))
         }
     }
 
@@ -152,7 +152,9 @@ private struct UnknownBatchPromptView: View {
     private func done() {
         let decisions = rows.map { row -> UnknownGroupDecision in
             if row.selection == Self.leaveTag {
-                return UnknownGroupDecision(ext: row.ext, kind: .leave, folder: "", remember: false)
+                // A remembered leave becomes a permanent ignore rule.
+                return UnknownGroupDecision(ext: row.ext, kind: .leave, folder: "",
+                                            remember: row.ext.isEmpty ? false : row.remember)
             }
             let folder = row.selection == Self.newFolderTag
                 ? row.newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -205,9 +207,10 @@ private struct UnknownRowView: View {
                     TextField("Folder name", text: $row.newFolderName)
                         .textFieldStyle(.roundedBorder)
                         .focused($nameFocused)
+                        .help("Letters, numbers, spaces — no slashes, colons, or leading dots")
                 }
 
-                if !isLeave && !row.ext.isEmpty {
+                if !row.ext.isEmpty {
                     Toggle("Remember", isOn: $row.remember)
                         .toggleStyle(.checkbox)
                         .font(.system(size: 11))

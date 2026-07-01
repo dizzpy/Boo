@@ -9,7 +9,7 @@ final class StatusItemController: NSObject {
     /// Height of the menu-bar avatar, in points.
     private static let iconHeight: CGFloat = 15
 
-    private var animTimer: Timer?
+    private var reactionTimer: Timer?
     private var temporaryState: GhostState = .idle
     private var temporaryUntil: Date?
     private var shownState: GhostState?
@@ -24,21 +24,11 @@ final class StatusItemController: NSObject {
 
         item.button?.imagePosition = .imageOnly
         buildMenu()
-        startAnimation()
         refresh()
         refreshStatusText()
     }
 
     // MARK: - Avatar
-
-    private func startAnimation() {
-        // A light tick that flips the avatar back to idle/sleeping when a
-        // temporary reaction (eating, confused) expires. Only redraws on change.
-        animTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.refresh()
-        }
-        if let t = animTimer { RunLoop.main.add(t, forMode: .common) }
-    }
 
     /// Picks the avatar that should be showing right now and updates it if needed.
     private func refresh() {
@@ -61,6 +51,14 @@ final class StatusItemController: NSObject {
         temporaryState = state
         temporaryUntil = Date().addingTimeInterval(duration)
         refresh()
+
+        // One-shot flip back to idle; .common so it fires while menus are open.
+        reactionTimer?.invalidate()
+        let t = Timer(timeInterval: duration + 0.05, repeats: false) { [weak self] _ in
+            self?.refresh()
+        }
+        reactionTimer = t
+        RunLoop.main.add(t, forMode: .common)
     }
 
     // MARK: - Menu
@@ -90,6 +88,10 @@ final class StatusItemController: NSObject {
         settings.target = self
         menu.addItem(settings)
 
+        let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        updates.target = self
+        menu.addItem(updates)
+
         let quit = NSMenuItem(title: "Quit Boo", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
@@ -115,6 +117,11 @@ final class StatusItemController: NSObject {
 
     @objc private func openDownloads() {
         NSWorkspace.shared.open(Paths.downloads)
+    }
+
+    /// Opens the releases page in the browser; Boo itself makes no network calls.
+    @objc private func checkForUpdates() {
+        NSWorkspace.shared.open(URL(string: "https://github.com/dizzpy/Boo/releases/latest")!)
     }
 
     @objc private func openSettings() {

@@ -13,19 +13,27 @@ jobs:
     name: Build and publish
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to commit SHAs so a moved tag can't swap their code.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Show Swift version
         run: swift --version
 
       - name: Build Boo.app and Boo.dmg
+        env:
+          BOO_VERSION: ${{ github.ref_name }}
         run: bash make-app.sh
+
+      - name: Verify code signature and entitlements
+        run: |
+          codesign --verify --strict --verbose=2 Boo.app
+          codesign -d --entitlements - Boo.app
 
       - name: Generate checksum
         run: shasum -a 256 Boo.dmg > Boo.dmg.sha256
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: |
             Boo.dmg

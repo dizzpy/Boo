@@ -8,12 +8,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         status = StatusItemController(sorter: sorter)
 
-        // Ghost + toast reactions, always delivered on the main thread.
-        sorter.onSorted = { [weak self] folder in
+        // Ghost + toast reactions, one toast per scan, on the main thread.
+        sorter.onSortedBatch = { [weak self] counts in
             DispatchQueue.main.async {
                 self?.status.playEating()
-                if Store.shared.notificationsEnabled {
+                guard Store.shared.notificationsEnabled else { return }
+                let total = counts.values.reduce(0, +)
+                if total == 1, let folder = counts.keys.first {
                     ToastManager.shared.show("Nom! Saved to \(folder)")
+                } else {
+                    ToastManager.shared.show("Nom! Sorted \(total) files")
                 }
             }
         }

@@ -30,8 +30,10 @@ final class Sorter {
             at: dl, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]
         ) else { return }
 
-        // Prune leftAlone entries whose files are gone.
         leftAlone = leftAlone.filter { fm.fileExists(atPath: dl.appendingPathComponent($0).path) }
+
+        // Grouped by extension so we can prompt once for the whole batch, not once per file.
+        var unresolved: [String: [URL]] = [:]
 
         for url in items {
             let name = url.lastPathComponent
@@ -55,7 +57,11 @@ final class Sorter {
                 moveAndReport(url, to: folder)
                 continue
             }
-            promptUnknown(url: url, ext: ext)
+            unresolved[ext, default: []].append(url)
+        }
+
+        if !unresolved.isEmpty {
+            promptUnknownBatch(unresolved)
         }
     }
 
@@ -93,7 +99,6 @@ final class Sorter {
         }
     }
 
-    /// Appends " (1)", " (2)"... before the extension if the name is taken.
     private func uniqueDestination(for name: String, in dir: URL) -> URL {
         var candidate = dir.appendingPathComponent(name)
         guard fm.fileExists(atPath: candidate.path) else { return candidate }
@@ -111,26 +116,37 @@ final class Sorter {
 
     // MARK: - Unknown type prompt
 
-    private func promptUnknown(url: URL, ext: String) {
+    /// Prompts once for every unresolved extension found in this scan, then applies
+    /// each decision to every file sharing that extension.
+    private func promptUnknownBatch(_ unresolved: [String: [URL]]) {
         onConfused?()
-        let name = url.lastPathComponent
         let folders = existingFolders()
+        let groups = unresolved
+            .map { ext, urls in UnknownGroup(ext: ext, exampleName: urls[0].lastPathComponent, count: urls.count) }
+            .sorted { $0.ext < $1.ext }
 
         // UI must run on the main thread. We are on `queue`, so sync is safe.
         DispatchQueue.main.sync {
-            let decision = UnknownFilePrompt.run(fileName: name, ext: ext, folders: folders)
-            switch decision.kind {
-            case .leave:
-                leftAlone.insert(name)
-            case .move:
-                if move(url, toFolder: decision.folder) {
-                    if decision.remember, !ext.isEmpty {
-                        store.learned[ext] = decision.folder
+            let decisions = UnknownFilePrompt.run(groups: groups, folders: folders)
+            for decision in decisions {
+                guard let urls = unresolved[decision.ext] else { continue }
+                switch decision.kind {
+                case .leave:
+                    for url in urls { leftAlone.insert(url.lastPathComponent) }
+                case .move:
+                    var movedAny = false
+                    for url in urls {
+                        if move(url, toFolder: decision.folder) {
+                            onSorted?(decision.folder)
+                            movedAny = true
+                        } else {
+                            // Move failed; don't re-prompt on every rescan.
+                            leftAlone.insert(url.lastPathComponent)
+                        }
                     }
-                    onSorted?(decision.folder)
-                } else {
-                    // Move failed; don't re-prompt on every rescan.
-                    leftAlone.insert(name)
+                    if decision.remember, movedAny, !decision.ext.isEmpty {
+                        store.learned[decision.ext] = decision.folder
+                    }
                 }
             }
         }

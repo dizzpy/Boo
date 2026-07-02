@@ -13,6 +13,7 @@ final class StatusItemController: NSObject {
     private var temporaryState: GhostState = .idle
     private var temporaryUntil: Date?
     private var shownState: GhostState?
+    private var downloadsAccessOK = true
 
     private var settingsWindow: NSWindow?
     private let statusMenuItem = NSMenuItem(title: "Boo is watching", action: nil, keyEquivalent: "")
@@ -100,8 +101,33 @@ final class StatusItemController: NSObject {
     }
 
     private func refreshStatusText() {
-        statusMenuItem.title = store.paused ? "Boo is napping" : "Boo is watching"
+        if !downloadsAccessOK {
+            statusMenuItem.title = "Boo can't see Downloads — click to fix"
+            statusMenuItem.isEnabled = true
+            statusMenuItem.target = self
+            statusMenuItem.action = #selector(openPrivacySettings)
+        } else {
+            statusMenuItem.title = store.paused ? "Boo is napping" : "Boo is watching"
+            statusMenuItem.isEnabled = false
+            statusMenuItem.action = nil
+        }
         pauseMenuItem.title = store.paused ? "Resume" : "Pause"
+    }
+
+    /// Called after each scan; surfaces missing Downloads permission instead
+    /// of failing silently.
+    func setDownloadsAccess(ok: Bool) {
+        guard ok != downloadsAccessOK else { return }
+        downloadsAccessOK = ok
+        refreshStatusText()
+        if !ok {
+            ToastManager.shared.show("Boo can't see Downloads — check Privacy & Security")
+        }
+    }
+
+    @objc private func openPrivacySettings() {
+        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func togglePause() {

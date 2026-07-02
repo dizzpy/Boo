@@ -24,16 +24,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sorter.onConfused = { [weak self] in
             DispatchQueue.main.async { self?.status.playConfused() }
         }
-
-        // Watch ~/Downloads for changes.
-        watcher = DownloadsWatcher(url: Paths.downloads) { [weak self] in
-            self?.sorter.scan()
-        }
-        if watcher == nil {
-            ToastManager.shared.show("Couldn't watch Downloads")
+        sorter.onAccess = { [weak self] ok in
+            DispatchQueue.main.async { self?.status.setDownloadsAccess(ok: ok) }
         }
 
-        // Sort whatever is already sitting there.
+        // Sort whatever is already sitting there. Runs on a background queue,
         sorter.scan()
+
+        // Watch ~/Downloads for changes. The open() inside can block while
+        // macOS asks for Downloads permission — keep it off the main thread.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let watcher = DownloadsWatcher(url: Paths.downloads) { self?.sorter.scan() }
+            DispatchQueue.main.async {
+                self?.watcher = watcher
+                if watcher == nil {
+                    ToastManager.shared.show("Couldn't watch Downloads")
+                }
+            }
+        }
     }
 }

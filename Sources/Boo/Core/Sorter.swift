@@ -7,6 +7,8 @@ final class Sorter {
     var onSortedBatch: (([String: Int]) -> Void)?
     /// Called when an unknown file triggered a prompt.
     var onConfused: (() -> Void)?
+    /// Called off-main after each scan with whether Downloads could be read.
+    var onAccess: ((Bool) -> Void)?
 
     private let fm = FileManager.default
     private let queue = DispatchQueue(label: "co.dizzpy.boo.sort")
@@ -41,9 +43,15 @@ final class Sorter {
             .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey,
             .contentModificationDateKey, .creationDateKey,
         ]
+        // This read may block while macOS shows the Downloads permission
+        // prompt on first run — we're on the background queue, so that's fine.
         guard let items = try? fm.contentsOfDirectory(
             at: dl, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]
-        ) else { return }
+        ) else {
+            onAccess?(false)
+            return
+        }
+        onAccess?(true)
 
         leftAlone.formIntersection(items.map { fileKey($0) })
 

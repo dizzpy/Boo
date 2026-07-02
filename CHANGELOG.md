@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-07-02
+
+### Fixed
+
+- **Sorting was completely broken in the sandboxed 1.2.0**: the sandbox hands
+  the app a symlinked Downloads path, and sandboxed directory enumeration
+  refuses to traverse symlinks ("Not a directory"). Boo now resolves to the
+  real ~/Downloads path before reading.
+- App froze at launch if macOS held the Downloads permission check: the
+  folder watcher's blocking `open()` ran on the main thread inside
+  `applicationDidFinishLaunching`. The watcher now starts on a background
+  queue and the first scan triggers the permission prompt safely off-main.
+- Missing Downloads permission is no longer silent: the menu shows
+  "Boo can't see Downloads — click to fix" (opens Privacy & Security) and a
+  toast appears once instead of the app doing nothing.
+
 ## [1.2.0] - 2026-07-01
 
 ### Added
@@ -73,6 +89,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Ignores in-progress downloads (`.crdownload`, `.download`, `.part`, …) and waits
   for file size to stabilize before moving.
 
+[1.2.1]: https://github.com/dizzpy/boo/releases/tag/v1.2.1
 [1.2.0]: https://github.com/dizzpy/boo/releases/tag/v1.2.0
 [1.1.0]: https://github.com/dizzpy/boo/releases/tag/v1.1.0
 [1.0.0]: https://github.com/dizzpy/boo/releases/tag/v1.0.0
